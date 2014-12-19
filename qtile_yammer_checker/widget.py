@@ -43,11 +43,18 @@ class YammerChecker(base.ThreadedPollText):
             'absolute path of secrets file - must be set'
         ),
         (
+            'format',
+            ('My Feed:%(unseen_message_count_following)s, '
+             'Private:%(private_unseen_thread_count)s'),
+
+            'text to display - leave this at the default for now...'
+        ),
+        (
             'reminder_color',
             'FF0000',
             'color entries'
         ),
-        ('www_group', 'www', 'group to open browser into'),
+        ('www_group', None, 'group to open browser into'),
         ('www_screen', 0, 'screen to open group on'),
         (
             'browser_cmd',
@@ -124,25 +131,46 @@ class YammerChecker(base.ThreadedPollText):
     def button_press(self, x, y, button):
         base.ThreadedPollText.button_press(self, x, y, button)
         if hasattr(self, 'credentials'):
-            self.qtile.addGroup(self.www_group)
-            self.qtile.groupMap[self.www_group].cmd_toscreen(self.www_screen)
+            if self.www_group:
+                self.qtile.addGroup(self.www_group)
+                www_group = self.www_group
+            else:
+                www_group = self.qtile.groupMap.keys()[0]
+            self.qtile.groupMap[www_group].cmd_toscreen(self.www_screen)
             self.qtile.cmd_spawn(self.browser_cmd)
 
     def poll(self):
         # if we don't have valid credentials, update them
         if not hasattr(self, 'credentials') or self.credentials.invalid:
             self.cred_init()
-            data = {'unseen_thread_count': 'Credentials updating'}
-            return str(data['unseen_thread_count'])
+            return 'Credentials updating'
 
         access_token = self.credentials.access_token['token']
         yammer = Yammer(access_token=access_token)
-        contents = yammer.messages.private()
+        contents = yammer.messages.from_my_feed()
+        p_contents = yammer.messages.private()
 
-        data = {'unseen_thread_count': contents.meta['unseen_thread_count']}
-        if data['unseen_thread_count'] > 0:
-            data = {
-                'unseen_thread_count': '<span color="%s">%s</span>'% (
-                    utils.hex(self.reminder_color),
-                    data['unseen_thread_count'])} 
-        return str(data['unseen_thread_count'])
+        content_keys = [
+            "unseen_message_count_following",
+            "unseen_thread_count_following",
+            "unseen_message_count_received",
+            "unseen_thread_count_received",
+            "unseen_message_count_algo",
+            "unseen_thread_count_algo",
+            "unseen_message_count_my_all",
+            "unseen_thread_count_my_all"]
+        p_content_keys = [
+            "unseen_thread_count"]
+        data = {}
+        for p_content_key in p_content_keys:
+            data["private_" + p_content_key] = p_contents.meta[p_content_key]
+        for content_key in content_keys:
+            data[content_key] = contents.meta[content_key]
+
+        for key in data.keys():
+            if data[key] == 0:
+              continue
+            data[key] = '<span color="%s">%s</span>' % (
+                utils.hex(self.reminder_color),
+                data[key])
+        return self.format % data
